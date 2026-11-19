@@ -9,6 +9,11 @@ services:
       WEBHOOK_SECRET: ${WEBHOOK_SECRET:?Set WEBHOOK_SECRET in .env}
     ports:
       - "127.0.0.1:8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "from urllib.request import urlopen; urlopen('http://localhost:8000/health', timeout=2).close()"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
     depends_on:
       db:
         condition: service_healthy
@@ -27,6 +32,17 @@ services:
       timeout: 3s
       retries: 10
       start_period: 5s
+
+  simulator:
+    image: meetrj/callzo-webhook-simulator
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      WEBHOOK_SECRET: ${WEBHOOK_SECRET:?Set WEBHOOK_SECRET in .env}
+    # The simulator accepts its secret as a flag. Forward Compose's command as "$@".
+    entrypoint: ["/bin/sh", "-c", 'exec python webhook_simulator.py --secret "$$WEBHOOK_SECRET" "$$@"', "simulator"]
+    command: ["--url", "http://api:8000/webhooks/calls", "--scenario", "all"]
 
 volumes:
   postgres_data:

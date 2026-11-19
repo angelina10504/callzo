@@ -45,6 +45,25 @@ only the valid test event as `pending`, with its exact bytes intact. A
 database outage returned 503. After Postgres restarted, the test row was
 deleted and the original row count was restored.
 
+On 20 November 2026 the published Callzo simulator sent 184 HTTP requests
+across seven separate runs. The counts below match the API access logs.
+Rows added are the change in the Postgres row count during each run.
+
+| Scenario | Requests sent | HTTP responses | Rows added |
+| --- | ---: | --- | ---: |
+| normal | 40 | 202 × 40 | 40 |
+| duplicates | 25 | 202 × 10, 200 × 15 | 10 |
+| out_of_order | 20 | 202 × 20 | 20 |
+| late | 8 | 202 × 8 | 8 |
+| malformed | 5 | 422 × 5 | 0 |
+| bad_signature | 6 | 401 × 6 | 0 |
+| cap_burst | 80 | 202 × 80 | 80 |
+| **Total** | **184** | **202 × 158, 200 × 15, 422 × 5, 401 × 6** | **158** |
+
+Each duplicate returned 200 after its first delivery returned 202. All 158
+stored rows were retained as `pending`. No request returned 500. The
+`cap_burst` result covers ingestion of the burst. Cap enforcement is planned.
+
 ## Run this step
 
 One-time setup from the project root (skip copying if `.env` already exists):
@@ -58,7 +77,7 @@ Set a nonempty `POSTGRES_PASSWORD` and set `WEBHOOK_SECRET` to the shared
 secret from `Task1_spec.md` in your local `.env`. Then run:
 
 ```bash
-docker compose up --build -d --wait
+docker compose up --build -d --wait api
 curl --retry 10 --retry-connrefused --retry-delay 1 -i http://localhost:8000/health
 curl -i http://localhost:8000/ready
 docker compose ps
@@ -70,6 +89,19 @@ returns HTTP 200 with `{"status":"ready"}`; Postgres is marked healthy;
 and SQL returns `1`. The SQL command assumes the example user/database names.
 The first run downloads images and Python packages; no Docker Hub account
 or image publishing is needed for this step.
+
+To send real traffic for one scenario, run the following from `task1`.
+Replace `normal` with any scenario in the table above. Each run can add rows.
+
+```bash
+docker compose run --rm simulator --url http://api:8000/webhooks/calls --scenario normal
+```
+
+Starting the whole stack with `docker compose up` runs the simulator with
+`--scenario all`. Compose waits for the API's `/health` check first. The
+simulator takes its signing secret through the `--secret` flag. Its entrypoint
+passes the value from `WEBHOOK_SECRET` in the local environment file, even
+when the scenario command is overridden.
 
 Stop the containers with `docker compose down`. The named volume keeps
 Postgres data between runs. Changing `.env` credentials after the first run
@@ -156,7 +188,7 @@ newline change the signed body. Use a fresh ID to run the example again.
   can reuse the install layer when only application code changes.
 - `.dockerignore`: keeps local secrets, virtual environments, Python caches,
   editor metadata, and tests out of the Docker build context.
-- `docker-compose.yml`: `services` defines the two containers. `build: .`
+- `docker-compose.yml`: `services` defines the API, Postgres, and simulator. `build: .`
   builds the API from this folder. `ports` exposes it only on your Mac's
   loopback address (host port 8000 forwards to container port 8000);
   `depends_on` waits for a healthy database at startup.
