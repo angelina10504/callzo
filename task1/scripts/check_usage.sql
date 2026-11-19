@@ -1,9 +1,14 @@
 -- An empty result means every account/month agrees across all three totals.
-WITH first_ends AS (
+WITH processed AS (
+    SELECT *, first_value(account_id) OVER (
+        PARTITION BY call_id ORDER BY processed_at, received_at, event_id
+    ) AS owner_account
+    FROM webhook_events WHERE status = 'processed'
+), first_ends AS (
     SELECT DISTINCT ON (call_id) account_id, occurred_at, duration_seconds, cost_cents
-    FROM webhook_events
-    WHERE event_type = 'call.ended'
-    ORDER BY call_id, received_at, event_id
+    FROM processed
+    WHERE event_type = 'call.ended' AND account_id = owner_account
+    ORDER BY call_id, processed_at, received_at, event_id
 ), expected AS (
     SELECT account_id, date_trunc('month', occurred_at AT TIME ZONE 'UTC')::date AS month,
            sum(duration_seconds) AS call_seconds, sum(cost_cents) AS cost_cents, count(*) AS billed_calls

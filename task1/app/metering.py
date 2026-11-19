@@ -1,8 +1,8 @@
 import os
+from datetime import datetime
 
 from psycopg import Connection
 
-from app.database import connect_db
 from app.events import CallEvent
 
 
@@ -13,8 +13,8 @@ def monthly_cap() -> int:
     return cap
 
 
-def apply_event(connection: Connection, event: CallEvent) -> None:
-    """Apply a newly inserted or locked pending event in the caller's transaction."""
+def apply_event(connection: Connection, event: CallEvent, *, replay_time: datetime | None = None) -> None:
+    """Update the derived tables. Reconciliation supplies the historical processing time."""
     month = event.timestamp.date().replace(day=1)  # CallEvent normalizes to UTC.
     key = (event.account_id, month)
     connection.execute(
@@ -51,25 +51,11 @@ def apply_event(connection: Connection, event: CallEvent) -> None:
             """UPDATE monthly_usage
                SET call_seconds = call_seconds + %s, cost_cents = %s, billed_calls = billed_calls + 1,
                    cap_exceeded_at = CASE WHEN %s AND cap_exceeded_at IS NULL
-                                          THEN statement_timestamp() ELSE cap_exceeded_at END
+                                          THEN COALESCE(%s::timestamptz, statement_timestamp()) ELSE cap_exceeded_at END,
+                   cap_crossed_call_id = CASE WHEN %s AND cap_exceeded_at IS NULL
+                                              THEN %s ELSE cap_crossed_call_id END
                WHERE account_id = %s AND month = %s""",
-            (event.duration_seconds, new_cost, crossing, *key),
+            (event.duration_seconds, new_cost, crossing, replay_time, crossing, event.call_id, *key),
         )
     elif billed_id != event.event_id:
         connection.execute("UPDATE calls SET needs_review = true WHERE call_id = %s", (event.call_id,))
-
-    connection.execute(
-        """UPDATE webhook_events SET status = 'processed', processed_at = clock_timestamp(),
-               is_late = date_trunc('month', received_at AT TIME ZONE 'UTC')::date > %s
-           WHERE event_id = %s""", (month, event.event_id)
-    )
-
-
-def process_pending() -> None:
-    with connect_db() as connection:
-        pending = connection.execute(
-            """SELECT raw_body FROM webhook_events WHERE status = 'pending'
-               ORDER BY received_at, event_id FOR UPDATE"""
-        ).fetchall()
-        for (body,) in pending:
-            apply_event(connection, CallEvent.model_validate_json(body))

@@ -1,3 +1,4 @@
+import asyncio
 import os
 from contextlib import asynccontextmanager
 
@@ -5,7 +6,8 @@ from fastapi import FastAPI, HTTPException
 from psycopg import OperationalError
 
 from app.database import connect_db, initialize_schema
-from app.metering import monthly_cap, process_pending
+from app.metering import monthly_cap
+from app.processing import retry_job
 from app.usage import router as usage_router
 from app.webhooks import router as webhook_router
 
@@ -18,8 +20,13 @@ async def lifespan(app: FastAPI):
     app.state.webhook_secret = secret.encode("utf-8")
     monthly_cap()
     initialize_schema()
-    process_pending()
-    yield
+    stop = asyncio.Event()
+    job = asyncio.create_task(retry_job(stop))
+    try:
+        yield
+    finally:
+        stop.set()
+        await job
 
 
 app = FastAPI(lifespan=lifespan)
@@ -40,3 +47,22 @@ def ready() -> dict[str, str]:
     except OperationalError:
         raise HTTPException(status_code=503, detail="Database unavailable") from None
     return {"status": "ready"}
+
+
+@app.get("/metrics")
+def metrics():
+    try:
+        with connect_db() as connection:
+            rows = connection.execute(
+                """SELECT status, count(*), count(*) FILTER (WHERE attempts > 0)
+                   FROM webhook_events GROUP BY status"""
+            ).fetchall()
+    except OperationalError:
+        raise HTTPException(503, "Database unavailable") from None
+    counts = {"pending": 0, "processed": 0, "failed": 0}
+    waiting = 0
+    for status, total, previously_failed in rows:
+        counts[status] = total
+        if status == "pending":
+            waiting = previously_failed
+    return {"events_by_status": counts, "waiting_for_retry": waiting}

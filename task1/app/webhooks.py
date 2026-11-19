@@ -1,19 +1,20 @@
 import hmac
 import json
 import logging
+from time import perf_counter
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, Response
 from psycopg import OperationalError
 from starlette.concurrency import run_in_threadpool
 
 from app.database import connect_db
 from app.events import CallEvent
-from app.metering import apply_event
+from app.event_log import emit
+from app.processing import process_one
 
 
 router = APIRouter()
-logger = logging.getLogger(__name__)
 
 
 def signature_matches(raw_body: bytes, signature: str | None, secret: bytes) -> bool:
@@ -54,7 +55,6 @@ def store_event(event: CallEvent, raw_body: bytes) -> Literal["accepted", "dupli
             ),
         ).fetchone()
         if inserted is not None:
-            apply_event(connection, event)
             return "accepted"
 
         existing = connection.execute(
@@ -66,22 +66,32 @@ def store_event(event: CallEvent, raw_body: bytes) -> Literal["accepted", "dupli
 
 
 @router.post("/webhooks/calls", status_code=202)
-async def receive_call(request: Request, response: Response) -> dict[str, str]:
-    raw_body = await request.body()
-    signature = request.headers.get("X-Signature")
-    if not signature_matches(raw_body, signature, request.app.state.webhook_secret):
-        raise HTTPException(status_code=401, detail="Invalid signature")
-
-    event = validate_event(raw_body)
+async def receive_call(request: Request, response: Response, background: BackgroundTasks) -> dict[str, str]:
+    started = perf_counter()
+    event = None
+    result, status = "error", 500
     try:
-        result = await run_in_threadpool(store_event, event, raw_body)
-    except Exception as error:
-        logger.error("Webhook transaction failed (%s)", type(error).__name__)
-        raise HTTPException(status_code=503, detail="Event could not be saved") from None
-
-    if result == "conflict":
-        logger.warning("Webhook event ID conflict: event_id=%r", event.event_id[:100])
-        raise HTTPException(status_code=409, detail="Event ID already has a different body")
-    if result == "duplicate":
-        response.status_code = 200
-    return {"status": result}
+        raw_body = await request.body()
+        if not signature_matches(raw_body, request.headers.get("X-Signature"), request.app.state.webhook_secret):
+            result, status = "invalid_signature", 401
+            raise HTTPException(status, "Invalid signature")
+        result, status = "invalid_event", 422
+        event = validate_event(raw_body)
+        try:
+            result = await run_in_threadpool(store_event, event, raw_body)
+        except Exception:
+            result, status = "storage_unavailable", 503
+            raise HTTPException(status, "Event could not be saved") from None
+        if result == "conflict":
+            status = 409
+            raise HTTPException(status, "Event ID already has a different body")
+        status = 200 if result == "duplicate" else 202
+        if result == "accepted":
+            background.add_task(process_one, event.event_id, "immediate")
+        response.status_code = status
+        return {"status": result}
+    finally:
+        emit("webhook", result, started, status_code=status,
+             level=logging.WARNING if status >= 400 else logging.INFO,
+             event_id=event.event_id if event else None, event_type=event.event_type if event else None,
+             account_id=event.account_id if event else None)

@@ -43,3 +43,19 @@ CREATE TABLE IF NOT EXISTS monthly_usage (
     cap_exceeded_at TIMESTAMPTZ,
     PRIMARY KEY (account_id, month)
 );
+
+ALTER TABLE webhook_events
+    ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS last_error TEXT,
+    ADD COLUMN IF NOT EXISTS next_retry_at TIMESTAMPTZ;
+
+ALTER TABLE monthly_usage ADD COLUMN IF NOT EXISTS cap_crossed_call_id TEXT;
+
+-- Older versions set the cap time just before marking the crossing event processed.
+UPDATE monthly_usage AS m SET cap_crossed_call_id = (
+    SELECT c.call_id FROM calls c JOIN webhook_events e ON e.event_id = c.billed_event_id
+    WHERE c.account_id = m.account_id
+      AND date_trunc('month', c.ended_at AT TIME ZONE 'UTC')::date = m.month
+      AND e.processed_at >= m.cap_exceeded_at
+    ORDER BY e.processed_at, e.event_id LIMIT 1
+) WHERE cap_exceeded_at IS NOT NULL AND cap_crossed_call_id IS NULL;
