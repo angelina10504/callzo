@@ -329,8 +329,12 @@ From `task1`, with the API and Postgres running:
 docker compose exec api python -m app.reconcile
 docker compose exec api python -m app.reconcile --apply
 docker compose exec -T db sh -c 'psql -X -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' < scripts/check_usage.sql
-docker compose run --rm --no-deps -v "$PWD/tests:/app/tests:ro" api sh -c 'pip install -q pytest httpx2 && python -m pytest -p no:cacheprovider -q'
+docker compose run --rm --no-deps -v "$PWD/tests:/app/tests:ro" api sh -c 'pip install --timeout 60 -q pytest httpx2 && python -m pytest -p no:cacheprovider -q'
 ```
+
+The pytest command downloads its two test dependencies inside a disposable
+container. If pip reports a network read timeout, rerun that command once the
+download host is reachable.
 
 The first command previews missing, extra or changed derived rows and prints
 their stored and expected values. Review it before using `--apply`, which
