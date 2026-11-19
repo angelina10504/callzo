@@ -1,0 +1,15 @@
+services:
+  mock-api:
+    image: meetrj/callzo-mock-usage-api
+    ports:
+      - "127.0.0.1:8001:8001"
+
+  frontend:
+    # Switch build to a pushed image before submission.
+    build: .
+    ports:
+      - "127.0.0.1:3000:80"
+    depends_on:
+      - mock-api
+    environment:
+      API_URL: ${API_URL:-http://mock-api:8001}
