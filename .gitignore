@@ -18,3 +18,8 @@ dist/
 
 # Local machine files
 .DS_Store
+
+# Private assignment notes and local tooling
+/SESSION_LOG.md
+/codex_prompts/
+.sf/
