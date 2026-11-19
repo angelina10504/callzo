@@ -94,29 +94,34 @@ errors. After processing, the retained database held 326 processed events,
 zero pending and zero failed. Both the independent SQL check and reconciliation
 reported zero differences.
 
-## Run this step
+## Run Task 1
 
-From the project root, run the following to start the API, Postgres and the
-simulator with local demo credentials. A fresh reviewer checkout can use
-the Compose defaults directly.
+With Docker and Compose running and host port 8000 free, a reviewer can
+start from GitHub. The defaults work without a `.env` file. Docker needs
+network access to download uncached images and Python packages.
 
 ```bash
-cd task1
-docker compose up
+git clone https://github.com/angelina10504/callzo.git
+cd callzo/task1
+docker compose up -d --wait
+docker compose wait simulator
+docker compose logs simulator
 ```
 
-To start only the API and Postgres and inspect usage:
+The stack runs the `all` scenario automatically. Waiting for the simulator
+lets it finish sending events before you inspect usage. Use the current UTC
+month for the account query. The verification commands below run from this
+same directory.
 
 ```bash
-docker compose up --build -d --wait api
 curl -i http://localhost:8000/health
 curl -i http://localhost:8000/ready
 curl -i http://localhost:8000/metrics
-curl -H 'X-API-Key: callzo_demo_usage_key' 'http://localhost:8000/usage/acct_001?month=2026-11'
+curl -i -H 'X-API-Key: callzo_demo_usage_key' "http://localhost:8000/usage/acct_001?month=$(date -u +%Y-%m)"
 ```
 
-The last command uses the demo key and an example billing month. Change
-the month to match your simulator run. To override demo settings, copy
+To start just the API and Postgres, use `docker compose up --build -d --wait api`.
+To override demo settings, copy
 `.env.example` to `.env` and set the desired values. Keep the original
 database credentials when reusing an initialized volume. The Compose
 defaults for the signing secret, database password, and usage key are
@@ -138,6 +143,15 @@ when the scenario command is overridden.
 Stop the containers with `docker compose down`. The named volume keeps
 Postgres data between runs. Changing `.env` credentials after the first run
 does not change credentials in an already initialized database.
+
+For a second checkout on the same machine, first run `docker compose down`
+in the original `task1` directory to free port 8000. In a separate shell
+for the temporary checkout, export a unique `COMPOSE_PROJECT_NAME` before
+starting Compose (for example, `export COMPOSE_PROJECT_NAME=callzo_review_$(date +%s)`).
+This gives the checkout its own database volume. To discard that test database,
+run `docker compose down -v` in the temporary checkout with the same project
+name. Back in the original shell and checkout, `docker compose up -d --wait api`
+restores the API and its database.
 
 To try the webhook, save a valid call event (for example, the JSON in the supplied webhook spec) as
 `/tmp/callzo-event.json`. Run the following from `task1`. The first line

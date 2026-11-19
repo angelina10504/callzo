@@ -8,7 +8,7 @@ from app.events import CallEvent
 from app.metering import apply_event
 
 
-def record_failure(event_id, error):
+def record_failure(event_id: str, error: Exception) -> tuple[int, str] | None:
     # The billing transaction has rolled back. A concurrent success wins.
     with connect_db() as connection:
         return connection.execute(
@@ -23,7 +23,7 @@ def record_failure(event_id, error):
         ).fetchone()
 
 
-def process_one(event_id, source):
+def process_one(event_id: str, source: str) -> None:
     started = perf_counter()
     fields = {"event_id": event_id, "event_type": None, "account_id": None, "source": source}
     claimed = False
@@ -65,16 +65,17 @@ def process_one(event_id, source):
     emit("processing", "processed", started, **fields)
 
 
-def due_ids():
+def due_ids() -> list[tuple[str]]:
+    # process_one claims each row when it is ready to process it.
     with connect_db() as connection:
         return connection.execute(
             """SELECT event_id FROM webhook_events WHERE status='pending'
                AND (next_retry_at IS NULL OR next_retry_at <= statement_timestamp())
-               ORDER BY received_at, event_id LIMIT 50 FOR UPDATE SKIP LOCKED"""
+               ORDER BY received_at, event_id LIMIT 50"""
         ).fetchall()
 
 
-async def retry_job(stop):
+async def retry_job(stop: asyncio.Event) -> None:
     while not stop.is_set():
         started = perf_counter()
         try:
