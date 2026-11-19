@@ -1,0 +1,9 @@
+Before anything else: this project is not a git repository. Run `git init` in the repo root (callzo-swe-intern-assignment), confirm `.env` is ignored by the existing .gitignore, and make a first commit of the current state. Show me `git status` before committing so I can confirm no secrets are staged.
+
+Then, task1 only: run the real simulator against our API, one scenario at a time. Do not build usage totals or caps yet; this step only checks that our endpoint behaves correctly on real traffic.
+
+1. Add the `simulator` service to task1/docker-compose.yml using image `meetrj/callzo-webhook-simulator`, `depends_on` api (healthy if you add an API healthcheck on /health), command `["--url", "http://api:8000/webhooks/calls", "--scenario", "all"]`. The simulator must sign with the same secret as our `WEBHOOK_SECRET`; check `docker run --rm meetrj/callzo-webhook-simulator --help` for how it receives the secret and wire it from `.env` (do not hardcode it in the compose file).
+2. Run each scenario separately: normal, duplicates, out_of_order, late, malformed, bad_signature, cap_burst (e.g. `docker compose run --rm simulator --url http://api:8000/webhooks/calls --scenario <name>`).
+3. For each scenario, give me a small table: events sent, count of each HTTP status returned, and rows added to webhook_events. Expected: normal 202; duplicates 202 first then 200; out_of_order and late 202; malformed 422; bad_signature 401; cap_burst 202. No 500s anywhere.
+4. If any valid simulator event gets 422, or anything returns 500, stop and show me the exact payload and error before changing code. Our validation may be stricter than the real data (account_id pattern, destination_country required, zero cost on started/failed).
+5. Record the results in README "Current status". Leave the rows in the table this time; we will use them when building usage totals. Ask me before deleting volumes or data.
