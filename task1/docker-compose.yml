@@ -2,11 +2,13 @@ services:
   api:
     build: .
     environment:
+      MONTHLY_CAP_CENTS: ${MONTHLY_CAP_CENTS:-426}
+      USAGE_API_KEY: ${USAGE_API_KEY:-callzo_demo_usage_key}
       POSTGRES_HOST: db
       POSTGRES_USER: ${POSTGRES_USER:-callzo}
       POSTGRES_DB: ${POSTGRES_DB:-callzo}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
-      WEBHOOK_SECRET: ${WEBHOOK_SECRET:?Set WEBHOOK_SECRET in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-callzo_demo_password}
+      WEBHOOK_SECRET: ${WEBHOOK_SECRET:-callzo_test_secret_change_me}
     ports:
       - "127.0.0.1:8000:8000"
     healthcheck:
@@ -23,7 +25,7 @@ services:
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-callzo}
       POSTGRES_DB: ${POSTGRES_DB:-callzo}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-callzo_demo_password}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -39,7 +41,7 @@ services:
       api:
         condition: service_healthy
     environment:
-      WEBHOOK_SECRET: ${WEBHOOK_SECRET:?Set WEBHOOK_SECRET in .env}
+      WEBHOOK_SECRET: ${WEBHOOK_SECRET:-callzo_test_secret_change_me}
     # The simulator accepts its secret as a flag. Forward Compose's command as "$@".
     entrypoint: ["/bin/sh", "-c", 'exec python webhook_simulator.py --secret "$$WEBHOOK_SECRET" "$$@"', "simulator"]
     command: ["--url", "http://api:8000/webhooks/calls", "--scenario", "all"]

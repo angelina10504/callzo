@@ -5,6 +5,8 @@ from fastapi import FastAPI, HTTPException
 from psycopg import OperationalError
 
 from app.database import connect_db, initialize_schema
+from app.metering import monthly_cap, process_pending
+from app.usage import router as usage_router
 from app.webhooks import router as webhook_router
 
 
@@ -14,12 +16,15 @@ async def lifespan(app: FastAPI):
     if not secret.strip():
         raise RuntimeError("WEBHOOK_SECRET must be set")
     app.state.webhook_secret = secret.encode("utf-8")
+    monthly_cap()
     initialize_schema()
+    process_pending()
     yield
 
 
 app = FastAPI(lifespan=lifespan)
 app.include_router(webhook_router)
+app.include_router(usage_router)
 
 
 @app.get("/health")

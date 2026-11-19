@@ -9,12 +9,15 @@ Compose checks Postgres separately.
 `GET /ready` connects from the API to Postgres and executes `SELECT 1`.
 It returns HTTP 200 with `{"status":"ready"}` on success, or HTTP 503
 with `{"detail":"Database unavailable"}` for database connection failures.
-The API creates the `webhook_events` table and its indexes at startup.
-`POST /webhooks/calls` verifies the signature, validates the JSON, and saves
-new events as `pending`. A committed insert returns HTTP 202. Repeating the
-same ID and exact body returns HTTP 200. Reusing the ID with different bytes
-returns HTTP 409 and logs a warning. Usage queries, cap enforcement, workers,
-and reconciliation are planned.
+The API creates its schema at startup. A signed webhook inserts the raw
+event, updates its call, bills the first end event for that call, and marks
+the event processed in **one Postgres transaction**. A new event returns 202
+after commit. An identical delivery returns 200. A different body reusing
+the same event ID returns 409 and logs a warning.
+
+`GET /usage/{account_id}?month=YYYY-MM` returns the UTC month, billed seconds,
+cost in cents, billed call count, and the time the soft cap was first exceeded.
+Pass the usage API key in `X-API-Key`. An account/month with no usage returns 404.
 
 Verification on 13 November 2026: Compose configuration validation passed;
 Postgres started, became healthy, and returned `1` for `SELECT 1`.
@@ -60,35 +63,49 @@ Rows added are the change in the Postgres row count during each run.
 | cap_burst | 80 | 202 × 80 | 80 |
 | **Total** | **184** | **202 × 158, 200 × 15, 422 × 5, 401 × 6** | **158** |
 
-Each duplicate returned 200 after its first delivery returned 202. All 158
-stored rows were retained as `pending`. No request returned 500. The
-`cap_burst` result covers ingestion of the burst. Cap enforcement is planned.
+The 158 rows above were pending under the earlier ingestion-only version.
+On upgrade, startup processed all 158 in receipt order. An independent SQL
+sum of the first end per call matched all 16 account/month rows: 88 billed
+calls, 36,675 seconds, and 1,226 cents.
+
+| Retained scenario | Verified processing result |
+| --- | --- |
+| duplicates | 25 deliveries yielded 10 billed calls. Replaying all 25 original signed bodies returned 200 every time and left every monthly row identical. |
+| out_of_order | All 10 ends arrived before their starts. Each call was billed once and later acquired its start time. |
+| late | All 8 events were flagged late. Their 8 calls were billed to October 2026 although they arrived in November. |
+| cap_burst | The 40 burst calls added 800 cents to the 52 cents already recorded for `acct_001` in November. The demo cap is 426 cents, half of 852. Burst call 19 (`call_1d1e76fea08d`) took the month from 412 to 432 cents and set the cap timestamp. All 40 calls counted. |
+
+A fresh simulator invocation of `duplicates` generated 10 new calls and 16
+repeat deliveries. Only those 10 new calls added usage. The database then
+held 168 processed events and 98 billed calls, totaling 38,362 seconds and
+1,284 cents. The independent comparison again reported zero differences.
 
 ## Run this step
 
-One-time setup from the project root (skip copying if `.env` already exists):
+From the project root, run the following to start the API, Postgres and the
+simulator with local demo credentials. A fresh reviewer checkout can use
+the Compose defaults directly.
 
 ```bash
 cd task1
-cp .env.example .env
+docker compose up
 ```
 
-Set a nonempty `POSTGRES_PASSWORD` and set `WEBHOOK_SECRET` to the shared
-secret from `Task1_spec.md` in your local `.env`. Then run:
+To start only the API and Postgres and inspect usage:
 
 ```bash
 docker compose up --build -d --wait api
-curl --retry 10 --retry-connrefused --retry-delay 1 -i http://localhost:8000/health
+curl -i http://localhost:8000/health
 curl -i http://localhost:8000/ready
-docker compose ps
-docker compose exec db psql -U callzo -d callzo -c 'SELECT 1;'
+curl -H 'X-API-Key: callzo_demo_usage_key' 'http://localhost:8000/usage/acct_001?month=2026-11'
 ```
 
-Expected: `/health` returns HTTP 200 with `{"status":"ok"}`; `/ready`
-returns HTTP 200 with `{"status":"ready"}`; Postgres is marked healthy;
-and SQL returns `1`. The SQL command assumes the example user/database names.
-The first run downloads images and Python packages; no Docker Hub account
-or image publishing is needed for this step.
+The last command uses the demo key and an example billing month. Change
+the month to match your simulator run. To override demo settings, copy
+`.env.example` to `.env` and set the desired values. Keep the original
+database credentials when reusing an initialized volume. The Compose
+defaults for the signing secret, database password, and usage key are
+public local-demo values.
 
 To send real traffic for one scenario, run the following from `task1`.
 Replace `normal` with any scenario in the table above. Each run can add rows.
@@ -107,13 +124,12 @@ Stop the containers with `docker compose down`. The named volume keeps
 Postgres data between runs. Changing `.env` credentials after the first run
 does not change credentials in an already initialized database.
 
-To try the webhook, save the example JSON from `Task1_spec.md` as
+To try the webhook, save a valid call event (for example, the JSON in the supplied webhook spec) as
 `/tmp/callzo-event.json`. Run the following from `task1`. The first line
-exports the plain `WEBHOOK_SECRET` value from your local `.env` without
-printing it.
+uses the same signing secret as the running API, including any local override.
 
 ```bash
-export WEBHOOK_SECRET="$(sed -n 's/^WEBHOOK_SECRET=//p' .env)"
+export WEBHOOK_SECRET="$(docker compose exec -T api printenv WEBHOOK_SECRET)"
 python3 scripts/send_event.py /tmp/callzo-event.json
 python3 scripts/send_event.py /tmp/callzo-event.json
 python3 scripts/send_event.py /tmp/callzo-event.json --signature wrong
@@ -141,7 +157,7 @@ newline change the signed body. Use a fresh ID to run the example again.
   `from None` suppresses the original exception context; credentials and
   database error details are not included in the HTTP response. Success
   returns `{"status":"ready"}`. Plain `def` allows FastAPI to run these
-  blocking database calls in a worker thread.
+  blocking database calls in a thread.
 - `app/database.py`: `os` reads environment variables; `psycopg` is the
   Postgres driver. `connect_db()` returns a new `psycopg.Connection`.
   Each `os.environ["NAME"]` reads required configuration; a missing variable
@@ -162,12 +178,16 @@ newline change the signed body. Use a fresh ID to run the example again.
   `pending`. The indexes support finding pending events in receipt time
   order and looking up events for a call. `IF NOT EXISTS` lets the API apply
   this initial schema on new and existing volumes. Later changes to columns
-  or constraints will need a migration.
+  or constraints need a migration. Startup uses `ADD COLUMN IF NOT EXISTS`
+  to add lateness and processing timestamps to existing event tables.
+  `calls` keeps one row per call ID and `monthly_usage` keeps one row per account/month.
+- `app/events.py` defines the validated event shared by ingestion and startup.
+- `app/metering.py` applies one event using the caller’s connection. Startup
+  locks the pending rows and calls the same function in receipt order.
+- `app/usage.py` checks the API key and reads one monthly usage row.
 - `app/webhooks.py`: reads the body and verifies its signature before parsing
-  JSON. The event model checks the field types and allowed values, including
-  the database limits for integers. It converts the event timestamp to UTC.
-  The insert keeps the exact body bytes and uses the table's `pending`
-  default. If the ID exists, a second query fetches the original bytes to
+  JSON. It stores the exact signed bytes. A successful insert calls `apply_event`
+  on the same connection before the transaction commits. If the ID exists, a second query fetches the original bytes to
   distinguish a duplicate from a conflict. The database work runs in a
   thread so it can wait for Postgres while the API handles other requests.
 - `scripts/send_event.py`: reads a file, signs its bytes with `WEBHOOK_SECRET`,
@@ -197,7 +217,7 @@ newline change the signed body. Use a fresh ID to run the example again.
   same credentials, uses `db` as its database hostname, and receives the
   webhook secret from the local environment file.
   `${NAME:-callzo}` supplies a default;
-  `${NAME:?...}` stops startup if the password is missing or empty.
+  the same syntax supplies the demo defaults for credentials and the cap.
   `volumes` attaches persistent storage, declared at the bottom of the file.
   The health check runs `pg_isready` to check whether Postgres accepts
   connections. It uses a shell every 5 seconds, allows
@@ -223,9 +243,6 @@ Reference: [Psycopg connection and context manager documentation](https://www.ps
 - `requirements.txt`: Python dependencies installed in the API image.
 - `README.md`: setup, design decisions, failure behaviour, and next steps.
 
-Add modules when their behaviour is implemented. Usage queries, event
-processing, the retry worker, and reconciliation are planned.
-
 ## Design decisions
 
 These are implementation decisions for the assessment, not clarifications
@@ -238,11 +255,11 @@ confirmed by Callzo. The supplied webhook contract is in `../Task1_spec.md`.
 | Monthly cap | A soft cap on cost, configured with `MONTHLY_CAP_CENTS`. Count the crossing event in full. Usage equal to the cap has not exceeded it; the first update taking usage strictly above it sets `cap_exceeded_at`. Keep counting subsequent events. |
 | Concurrent usage updates | Lock the account/month usage row with `SELECT ... FOR UPDATE` while processing an event. Create that row safely if absent. The lock serializes updates and makes setting the first crossing consistent; a soft cap still allows usage above the limit. |
 | Repeated event ID | Identical raw bytes with the same `event_id` return HTTP 200. Different bytes with the same ID return HTTP 409 and produce a warning. The original row is preserved. |
-| Several end events for one call | The first valid end event durably saved for an account/call counts. Persist receipt order; retries and reconciliation must use that same order. Later end events with different IDs are retained and flagged but add no usage. Worker scheduling must not change the winner. |
-| Usage API authentication | Require an API key from an environment variable. Use a constant-time comparison and keep keys out of logs and source code. This is a simple assessment-level administrative credential. |
-| Durable acceptance and retries | Verify the signature and validate the event, then save it as `pending` in a transaction. Return HTTP 202 only after that transaction commits. The planned worker will use recoverable leases and record failures with `attempts` and `next_retry_at`. |
-| Processing transaction | Commit the usage update and successful processing status together. A worker crash must not leave an event marked processed without its usage, or cause a retry to count it again. A separate failure update records retry metadata after a processing rollback. |
-| Reconciliation | Raw accepted events are the source of truth. Rebuild usage using the same month, first-end-event, and cap rules as normal processing. Correct differing totals transactionally and log the correction count. Coordinate with live processing using the same locks so repairs cannot double-count pending work. |
+| Several end events for one call | The first end to acquire the call lock and commit wins. It stores its event ID and billing details. Another end flags the call for review. A later start can fill in the start time. A call ID reused across accounts is also flagged and keeps its original owner. |
+| Usage API authentication | Require the configured `USAGE_API_KEY` in `X-API-Key` and compare it in constant time. Compose supplies a public key for local demos. |
+| Processing transaction | The raw insert, call update, totals and processed marker commit together. A successful new event returns HTTP 202. |
+| Startup upgrade | Process existing pending rows in one transaction ordered by `received_at, event_id`. Lateness uses the original receipt time. |
+| Reconciliation | The read-only audit compares monthly totals with raw events. An automatic repair operation remains a future step. |
 | Strict validation | Require all contract fields, timezone-aware timestamps, supported event types, and nonnegative integer duration and cost. Reject strings, floats, and booleans for integer fields. Started and failed events must have zero duration and cost. Malformed input returns a 4xx response. |
 | Signature verification order | Read the raw body bytes, verify their HMAC-SHA256 using `hmac.compare_digest`, then parse JSON. Missing or invalid signatures return HTTP 401 before JSON parsing or storage. |
 | Account IDs | Accept `acct_` followed by exactly three ASCII digits and create the account on first acceptance. This deliberately extends the simulator's documented `acct_001`–`acct_010` set. |
@@ -252,33 +269,31 @@ Reconciliation must preserve it when that crossing remains valid. Details for
 repairing a missing or invalid crossing timestamp will be specified alongside
 the reconciliation implementation and tests.
 
-The initial example cap is 1,000 cents. Verify it against the actual
-`cap_burst` scenario and adjust the demo configuration if needed so the flag
-appears partway through the burst. Money and usage totals use integers.
-
 ## Failure behaviour
 
-- Missing or invalid signature: HTTP 401; do not parse or store the event.
-- Valid signature with invalid JSON or fields: HTTP 422 and no new event row.
-- Identical duplicate: HTTP 200; no second usage update, including while pending.
-- Database unavailable during ingestion: HTTP 503 so the sender can retry.
-- Processing fails after acceptance: keep the raw event and retry metadata;
-  the worker retries temporary failures.
-- Worker dies while processing: its lease expires and the event becomes
-  eligible for recovery. Processing remains idempotent.
-- Conflicting call end: retain and flag it for review; do not bill it again.
+- Missing or invalid signature returns 401. Invalid signed input returns 422.
+- Repeating identical bytes for an existing event ID returns 200 with no extra charge.
+- Reusing an event ID with different valid bytes returns 409 and preserves the original.
+- A processing or database failure rolls back the transaction and returns 503.
+  The sender can resend the same bytes, including after a lost HTTP response.
+- A different end event for an already billed call is retained and marked
+  processed. Its call is flagged for review and keeps its original charge.
+- If startup processing fails, the batch rolls back and startup fails. The
+  next successful startup processes the pending rows in the same order.
 
-Retry delays, maximum attempts, lease recovery, and exhausted-event visibility
-will be defined when the worker is implemented.
+## Verification
 
-## Verification plan
+With Postgres running, these commands compare the totals and run the pytest
+cases. The SQL query reports only differences. The tests create a private
+schema inside a transaction and roll back their own fixtures.
 
-Test signature checks before JSON parsing, strict validation, identical
-duplicates, conflicting IDs, out-of-order calls, late events, concurrent usage
-updates, the exact cap boundary, multiple end events, worker recovery, and
-reconciliation repairs. Run each supplied simulator scenario against Postgres.
-Provide structured logs and a health endpoint, and verify clean startup with
-`docker compose up` before submission.
+```bash
+docker compose exec -T db sh -c 'psql -X -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' < scripts/check_usage.sql
+docker compose run --rm --no-deps -v "$PWD/tests:/app/tests:ro" api sh -c 'pip install -q pytest && python -m pytest -p no:cacheprovider -q'
+```
+
+Four Postgres tests cover the exact cap boundary and sticky crossing time,
+conflicting ends, end before start, and rollback after a processing failure.
 
 ## Known limitation and next steps
 
@@ -290,5 +305,4 @@ event occurred, not when the sender delivered it. A future contract could add
 a signed delivery timestamp and a replay window while still allowing late
 call events.
 
-Next implementation step, after review, is to decide how to process the
-pending events into usage totals.
+A future reconciliation command could use the independent SQL comparison to identify and repair discrepancies.
