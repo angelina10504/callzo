@@ -4,17 +4,23 @@ The accounts table uses React and Tailwind CSS v4. The mock API handles search, 
 
 ## Run with Docker
 
-From the repository root, with Docker running and ports 3000 and 8001 available:
+With Docker Compose running, network access to Docker Hub, and ports 3000 and 8001 free:
 
 ```sh
-cd task2
-docker compose up --build -d
+git clone https://github.com/angelina10504/callzo.git
+cd callzo/task2
+docker compose up -d
 curl http://localhost:3000/api/health
 ```
 
 Open <http://localhost:3000>. The initial view shows daily usage and 25 of the mock API's 10,500 accounts, ordered by ID. The curl response is `{"status":"ok","accounts":10500}`. Run `docker compose down` from this directory to stop Task 2.
 
-Node builds the static files and nginx serves them. At container startup nginx substitutes `API_URL` into its configuration. It strips the `/api/` prefix and forwards the rest of the path and query string to the mock. The default upstream is `http://mock-api:8001` on the Compose network. Set `API_URL` to an origin without a trailing slash to override it. Compose builds the frontend locally for this stage. The submission requires a published frontend image.
+Node builds the static files and nginx serves them. At container startup nginx substitutes `API_URL` into its configuration. It strips the `/api/` prefix and forwards the rest of the path and query string to the mock. The default upstream is `http://mock-api:8001` on the Compose network. Set `API_URL` to an origin without a trailing slash to override it. Compose pulls `angelinagupta/callzo-task2-frontend:latest`. Node is only needed for local development. For a clean-pull rehearsal on the same machine:
+
+1. In the original `task2` directory run `docker compose down`, then `docker rmi angelinagupta/callzo-task2-frontend:latest` if the image is present.
+2. In a separate shell and temporary folder, clone the repo as above. From the clone’s `task2`, run `export COMPOSE_PROJECT_NAME=callzo_review_$(date +%s)` and `docker compose up -d`.
+3. Open the console, check the account rows and daily chart, then choose **Edit settings**. The mock occasionally returns 500 for the summary. Use its **Retry** button if needed.
+4. In that temporary shell run `docker compose down -v` and remove the temporary clone. In the original shell run `docker compose up -d` from the original `task2`.
 
 ## Run with Vite during development
 
@@ -50,7 +56,38 @@ Use **Edit settings** beside a name. The URL keeps the account ID and step, so r
 
 The reducer keeps confirmed data, editable values, field errors and save status separately for each step. A valid changed step saves after 800 ms of inactivity or immediately on leaving. One PUT per step runs at a time. Typing during a request keeps the newer input and queues a follow-up save. Retry resends the current draft. Refresh restores confirmed values; edits awaiting confirmation live in this tab.
 
+## The step-2 behaviour
+
 After step 4 is saved, the mock rejects further changes to step 2. If a fresh account opens directly on step 4, its webhook draft waits locally for the first confirmed Billing save. This keeps the first billing value recoverable even after an incomplete submit. The stepper marks Billing as needing attention even when another step is open. Billing shows the rejected draft beside the previously saved country. Reverting to the confirmed values sends no PUT. **Submit** uses the versions already on the server, so a rejected edit cannot block an otherwise complete submission. An incomplete submission opens the first missing step. [375 px settings dialog](screenshots/settings-375.png)
+
+## Assessment checklist
+
+- [x] Server-side search, sort, filters and paging — `Filters`, `AccountsTable` and `Pagination` update the URL, and `useAccounts` requests that page.
+- [x] Stable selection across pages — `AccountsPage` stores account IDs in a Set.
+- [x] Shared date range without navigation — `DateRange` updates the URL for both `useAccounts` and `useSummary`.
+- [x] Four-step autosave and back navigation — `useSettingsForm` flushes valid edits on leaving a step. `Stepper` and `StepFields` show server errors on their owning step.
+- [x] Table request states — `AccountsTable` shows skeletons or an empty result. `TableFeedback` provides Retry and identifies retained rows on failure.
+- [x] Chart request states — `LazySummary`, `SummaryCard` and `useSummary` handle loading, an empty series, retryable errors and stale data. Chart failures stay in the card.
+- [x] Settings load states — `SettingsDialog` shows loading and Retry. An empty server draft uses account defaults. If only one GET fails, the dialog identifies it and waits for both sources before enabling edits.
+- [x] Settings save states and rollback — `SaveStatus` reports progress or Retry. Unchanged drafts skip the PUT. `formReducer` keeps confirmed values and local edits separately when one step fails.
+- [x] Submit states — `StepEditor` shows submitting, success or a retryable error. An empty or incomplete submission marks missing steps and preserves the others.
+- [x] Keyboard, labels and focus — native controls, labelled fields, table sort buttons, a chart data table, and dialog focus trapping, step focus and return to the opener.
+- [x] 375 px layouts — `style.css` scopes scrolling to the table, Recharts resizes the chart, and `settings.css` makes the dialog full screen. Screenshots are linked above.
+- [x] Stable periodic refresh — `useAccounts` merges by ID every 15 seconds and defers new ordering until Reload. Selection stays in React state.
+- [x] Docker startup — `docker-compose.yml` runs the published frontend and supplied mock together.
+
+## Where state lives
+
+- **URL.** Search, filters, sort, page, page size, dates, settings account and step survive a refresh and can be shared.
+- **Server.** Account records, daily summaries and confirmed settings drafts are authoritative across sessions.
+- **React.** Selection, typed drafts, field errors, save status and pending row order belong to the current tab so background requests can preserve work in progress.
+
+## What I cut and why
+
+- No committed automated test suite. I exercised the flows in headless Chrome without adding a test runner to the project.
+- No virtualised table. The API limits each page to 200 accounts.
+- Selection resets on reload. A shared URL describes the view while selections belong to the person using the tab.
+- No optimistic settings writes. A step becomes complete only when the server confirms its values.
 
 ## API notes
 

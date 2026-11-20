@@ -1,3 +1,4 @@
+import { ChartSkeleton } from './ChartSkeleton'
 import { useState } from 'react'
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, XAxis, YAxis } from 'recharts'
 import { currency, number } from './accountFields'
@@ -77,12 +78,7 @@ function DailyLine({ series, metric }) {
 
 function ChartBody({ summary, metric }) {
   if (summary.status === 'loading') {
-    return (
-      <div className="chart-placeholder" role="status">
-        <span className="sr-only">Loading usage summary…</span>
-        <div className="chart-skeleton" aria-hidden="true" />
-      </div>
-    )
+    return <ChartSkeleton />
   }
   if (summary.status === 'error') {
     return (
@@ -133,7 +129,7 @@ function DailyValues({ series, metric }) {
   )
 }
 
-export function SummaryCard({ date_from, date_to }) {
+export default function SummaryCard({ date_from, date_to }) {
   const summary = useSummary({ date_from, date_to })
   const [metric, setMetric] = useState('minutes')
   const [expanded, setExpanded] = useState(false)

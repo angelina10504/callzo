@@ -85,7 +85,7 @@ export function formReducer(state, action) {
     case 'loaded':
       return loaded(action)
     case 'loadError':
-      return { ...state, phase: 'loadError' }
+      return { ...state, phase: 'loadError', loadError: action.message, account: action.account }
     case 'edit':
       return edited(state, action)
     case 'errors':

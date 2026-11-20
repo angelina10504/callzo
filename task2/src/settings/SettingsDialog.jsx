@@ -215,7 +215,7 @@ export function SettingsDialog({ accountId, step, goToStep, close, opener, leave
           {form.phase === 'loading' && <p role="status">Loading settings…</p>}
           {form.phase === 'loadError' && (
             <div>
-              <p role="alert">Couldn’t load account settings.</p>
+              <p role="alert">{form.loadError}</p>
               <button className="text-button" onClick={form.retryLoad}>
                 Retry
               </button>

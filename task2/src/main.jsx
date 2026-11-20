@@ -7,9 +7,9 @@ import { Filters } from './Filters'
 import { Pagination } from './Pagination'
 import { SelectionBar } from './SelectionBar'
 import { number } from './accountFields'
-import { DateRange } from './DateRange'
+import { DateRange } from './DateRange.jsx'
 import { dateRangeError } from './dateRange'
-import { SummaryCard } from './SummaryCard'
+import { LazySummary } from './LazySummary'
 import { SettingsDialog } from './settings/SettingsDialog'
 import './style.css'
 
@@ -18,7 +18,7 @@ function TableFeedback({ page }) {
   let message = ''
   let action = 'Refresh'
   if (page.error) {
-    message = page.error
+    message = page.rows ? page.error + ' Showing previous results.' : page.error
     action = 'Retry'
   } else if (page.updating) {
     message = page.rows ? 'Updating…' : 'Loading accounts…'
@@ -86,7 +86,7 @@ function AccountsPage() {
           </p>
         </div>
         <DateRange params={params} update={update} error={dateRangeError(params)} />
-        <SummaryCard date_from={params.date_from} date_to={params.date_to} />
+        <LazySummary date_from={params.date_from} date_to={params.date_to} />
         <Filters params={params} update={update} />
         <section className="panel" aria-label="Account results">
           <div className="toolbar">

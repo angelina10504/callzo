@@ -16,13 +16,23 @@ export function useSettingsForm(accountId) {
     lifetime.current = controller
     const { signal } = controller
     send({ type: 'loading' })
-    Promise.all([getAccount(accountId, signal), getSettings(accountId, signal)])
-      .then(([account, saved]) => {
-        if (!signal.aborted) send({ type: 'loaded', account, saved })
-      })
-      .catch(() => {
-        if (!signal.aborted) send({ type: 'loadError' })
-      })
+    Promise.allSettled([getAccount(accountId, signal), getSettings(accountId, signal)]).then(
+      ([account, draft]) => {
+        if (signal.aborted) return
+        const missing = []
+        if (account.status === 'rejected') missing.push('account details')
+        if (draft.status === 'rejected') missing.push('saved settings')
+        if (missing.length) {
+          send({
+            type: 'loadError',
+            message: 'Couldn’t load ' + missing.join(' or ') + '.',
+            account: account.value,
+          })
+          return
+        }
+        send({ type: 'loaded', account: account.value, saved: draft.value })
+      },
+    )
     return () => controller.abort()
   }, [accountId, attempt, send])
 
