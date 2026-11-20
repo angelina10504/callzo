@@ -12,7 +12,7 @@ docker compose up --build -d
 curl http://localhost:3000/api/health
 ```
 
-Open <http://localhost:3000>. The initial view shows 25 of the mock API's 10,500 accounts, ordered by ID. The curl response is `{"status":"ok","accounts":10500}`. Run `docker compose down` from this directory to stop Task 2.
+Open <http://localhost:3000>. The initial view shows daily usage and 25 of the mock API's 10,500 accounts, ordered by ID. The curl response is `{"status":"ok","accounts":10500}`. Run `docker compose down` from this directory to stop Task 2.
 
 Node builds the static files and nginx serves them. At container startup nginx substitutes `API_URL` into its configuration. It strips the `/api/` prefix and forwards the rest of the path and query string to the mock. The default upstream is `http://mock-api:8001` on the Compose network. Set `API_URL` to an origin without a trailing slash to override it. Compose builds the frontend locally for this stage. The submission requires a published frontend image.
 
@@ -35,6 +35,14 @@ Open the URL Vite prints. Both servers expose the same `/api/` paths to the brow
 - **Selection.** React holds a set of account IDs for this tab. The header checkbox toggles the displayed page. Selection survives navigation and polling, and resets on a full browser reload.
 - **Refresh.** Every 15 seconds the visible tab checks for new values when no request is in flight. Changed cells flash briefly. If the server sends a different order or page membership, the table holds its rows in place. **Reload** applies the latest server page.
 - **Small screens.** Filters stack, and the table scrolls independently with the name column pinned. [375 px screenshot](screenshots/accounts-375.png)
+
+## Date range and daily usage
+
+**From** and **To** apply to both the accounts table and the daily usage summary. Either end can be open. Editing or clearing a date resets the table to page 1 and records the range in the URL. An invalid range pauses both requests and their timers until corrected. Search, status, country and plan apply only to the accounts table.
+
+Choose minutes, SMS or USD cost to plot the daily series. The caption gives the total and the peak day. **Show data table** provides the exact daily values. The metric and table toggle are local display choices. [375 px chart screenshot](screenshots/summary-375.png)
+
+The chart loads independently. An initial request, a date change or a manual retry gets one automatic retry after one second. A second failure shows **Retry** in the chart card. After a successful load, the visible tab polls every 15 seconds. A failed poll keeps the last successful chart and shows its update time.
 
 ## API notes
 

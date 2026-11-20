@@ -140,7 +140,7 @@ function EmptyState({ clearFilters }) {
 
 export function AccountsTable({ page, params, sort, selected, toggle, clearFilters }) {
   const { rows, updating, changed, updated, error } = page
-  const empty = rows?.length === 0 && !updating && !error
+  const empty = rows?.length === 0 && !updating && !error && !page.blocked
 
   return (
     <div className="table-area" tabIndex={0} role="region" aria-label="Scrollable accounts table">
@@ -155,7 +155,7 @@ export function AccountsTable({ page, params, sort, selected, toggle, clearFilte
                     rows={rows || []}
                     selected={selected}
                     toggle={toggle}
-                    disabled={updating}
+                    disabled={updating || page.blocked}
                   />
                 )}
               </SortHeader>
@@ -163,7 +163,7 @@ export function AccountsTable({ page, params, sort, selected, toggle, clearFilte
           </tr>
         </thead>
         <tbody className={rows && updating ? 'opacity-55' : ''}>
-          {!rows && !error && <SkeletonRows />}
+          {!rows && !error && !page.blocked && <SkeletonRows />}
           {rows?.map(account => (
             <AccountRow
               key={account.id}

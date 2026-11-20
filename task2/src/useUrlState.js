@@ -11,6 +11,8 @@ function readParams() {
   }
   return {
     search: query.get('search') || '',
+    date_from: query.get('date_from') || '',
+    date_to: query.get('date_to') || '',
     status: choice('status', options.status, ''),
     country: query.get('country') || '',
     plan: choice('plan', options.plan, ''),

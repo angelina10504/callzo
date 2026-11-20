@@ -7,9 +7,13 @@ import { Filters } from './Filters'
 import { Pagination } from './Pagination'
 import { SelectionBar } from './SelectionBar'
 import { number } from './accountFields'
+import { DateRange } from './DateRange'
+import { dateRangeError } from './dateRange'
+import { SummaryCard } from './SummaryCard'
 import './style.css'
 
 function TableFeedback({ page }) {
+  if (page.blocked) return <div className="feedback">Fix the date range to load accounts.</div>
   let message = ''
   let action = 'Refresh'
   if (page.error) {
@@ -77,6 +81,8 @@ function AccountsPage() {
             )}
           </p>
         </div>
+        <DateRange params={params} update={update} error={dateRangeError(params)} />
+        <SummaryCard date_from={params.date_from} date_to={params.date_to} />
         <Filters params={params} update={update} />
         <section className="panel" aria-label="Account results">
           <div className="toolbar">
@@ -93,9 +99,16 @@ function AccountsPage() {
             sort={sort}
             selected={selected}
             toggle={toggle}
-            clearFilters={() => update({ search: '', status: '', country: '', plan: '' })}
+            clearFilters={() =>
+              update({ search: '', status: '', country: '', plan: '', date_from: '', date_to: '' })
+            }
           />
-          <Pagination params={params} total={page.total} update={update} updating={page.updating} />
+          <Pagination
+            params={params}
+            total={page.total}
+            update={update}
+            updating={page.updating || page.blocked}
+          />
         </section>
       </main>
     </>

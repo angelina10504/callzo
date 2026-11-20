@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { getAccounts } from './api'
+import { getAccounts, queryString } from './api'
+import { dateRangeError } from './dateRange'
 import { number } from './accountFields'
 
 function refreshPage(previous, incoming) {
@@ -39,9 +40,8 @@ function applyResponse(old, incoming, { refresh, query, updated }) {
 }
 
 export function useAccounts(params) {
-  const query = new URLSearchParams(
-    Object.entries(params).filter(([, value]) => value !== ''),
-  ).toString()
+  const query = queryString(params)
+  const blocked = Boolean(dateRangeError(params))
   const [attempt, setAttempt] = useState(0)
   const [page, setPage] = useState({
     rows: null,
@@ -57,6 +57,7 @@ export function useAccounts(params) {
   const lastSearch = useRef(params.search)
 
   useEffect(() => {
+    if (blocked) return
     const controller = new AbortController()
     const { signal } = controller
     let busy = false
@@ -88,7 +89,7 @@ export function useAccounts(params) {
       clearInterval(poll)
       controller.abort()
     }
-  }, [query, params.search, attempt])
+  }, [query, params.search, attempt, blocked])
 
   function acceptOrder() {
     setPage(old =>
@@ -100,7 +101,8 @@ export function useAccounts(params) {
 
   return {
     ...page,
-    updating: page.loading || (page.query !== query && !page.error),
+    blocked,
+    updating: !blocked && (page.loading || (page.query !== query && !page.error)),
     retry: () => setAttempt(n => n + 1),
     acceptOrder,
   }
