@@ -1,8 +1,16 @@
 // The API supports sorting on every displayed column. Email is shown with the name.
 export const columns = [
-  ['name', 'Name'], ['company', 'Company'], ['status', 'Status'], ['plan', 'Plan'],
-  ['current_month_minutes', 'Minutes'], ['current_month_sms', 'SMS'], ['cost_cents', 'Cost'],
-  ['country', 'Country'], ['signup_date', 'Signup date'], ['last_active', 'Last active'], ['id', 'ID'],
+  ['name', 'Name'],
+  ['company', 'Company'],
+  ['status', 'Status'],
+  ['plan', 'Plan'],
+  ['current_month_minutes', 'Minutes'],
+  ['current_month_sms', 'SMS'],
+  ['cost_cents', 'Cost'],
+  ['country', 'Country'],
+  ['signup_date', 'Signup date'],
+  ['last_active', 'Last active'],
+  ['id', 'ID'],
 ]
 
 export const options = {

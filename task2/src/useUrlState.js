@@ -3,7 +3,8 @@ import { columns, options } from './accountFields'
 
 function readParams() {
   const query = new URLSearchParams(location.search)
-  const choice = (key, choices, fallback) => choices.includes(query.get(key)) ? query.get(key) : fallback
+  const choice = (key, choices, fallback) =>
+    choices.includes(query.get(key)) ? query.get(key) : fallback
   const positiveInt = (key, fallback, max) => {
     const value = Number(query.get(key))
     return Number.isSafeInteger(value) && value > 0 && value <= max ? value : fallback
@@ -13,7 +14,11 @@ function readParams() {
     status: choice('status', options.status, ''),
     country: query.get('country') || '',
     plan: choice('plan', options.plan, ''),
-    sort_by: choice('sort_by', columns.map(([key]) => key), 'id'),
+    sort_by: choice(
+      'sort_by',
+      columns.map(([key]) => key),
+      'id',
+    ),
     sort_dir: choice('sort_dir', ['asc', 'desc'], 'asc'),
     page: positiveInt('page', 1, Number.MAX_SAFE_INTEGER),
     page_size: positiveInt('page_size', 25, 200),

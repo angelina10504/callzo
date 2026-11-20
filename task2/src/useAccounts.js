@@ -1,11 +1,12 @@
-import { useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { getAccounts } from './api'
 import { number } from './accountFields'
 
 function refreshPage(previous, incoming) {
   const byId = new Map(incoming.data.map(row => [row.id, row]))
   const changed = new Set()
-  const orderChanged = previous.rows.length !== incoming.data.length ||
+  const orderChanged =
+    previous.rows.length !== incoming.data.length ||
     previous.rows.some((row, index) => row.id !== incoming.data[index]?.id)
   const rows = previous.rows.map(old => {
     const fresh = byId.get(old.id)
@@ -18,16 +19,44 @@ function refreshPage(previous, incoming) {
   return { ...previous, rows, changed, pendingOrder: orderChanged ? incoming.data : null }
 }
 
+function applyResponse(old, incoming, { refresh, query, updated }) {
+  const keepOrder = refresh && old.query === query
+  const contents = keepOrder
+    ? refreshPage(old, incoming)
+    : { rows: incoming.data, changed: new Set(), pendingOrder: null }
+  const announceCount = !keepOrder || old.error
+  return {
+    ...contents,
+    query,
+    updated,
+    total: incoming.total,
+    loading: false,
+    error: '',
+    announcement: announceCount
+      ? `${number.format(incoming.total)} accounts. Page ${incoming.page}.`
+      : old.announcement,
+  }
+}
+
 export function useAccounts(params) {
-  const query = new URLSearchParams(Object.entries(params).filter(([, value]) => value !== '')).toString()
+  const query = new URLSearchParams(
+    Object.entries(params).filter(([, value]) => value !== ''),
+  ).toString()
   const [attempt, setAttempt] = useState(0)
   const [page, setPage] = useState({
-    rows: null, total: 0, query: null, error: '', changed: new Set(),
-    pendingOrder: null, updated: null, announcement: '', loading: true,
+    rows: null,
+    total: 0,
+    query: null,
+    error: '',
+    changed: new Set(),
+    pendingOrder: null,
+    updated: null,
+    announcement: '',
+    loading: true,
   })
   const lastSearch = useRef(params.search)
 
-  useLayoutEffect(() => {
+  useEffect(() => {
     const controller = new AbortController()
     const { signal } = controller
     let busy = false
@@ -42,14 +71,7 @@ export function useAccounts(params) {
         const incoming = await getAccounts(query, signal)
         if (signal.aborted) return
         const updated = new Date()
-        setPage(old => {
-          const keepOrder = refresh && old.query === query
-          const next = keepOrder ? refreshPage(old, incoming) : {
-            ...old, rows: incoming.data, changed: new Set(), pendingOrder: null,
-          }
-          return { ...next, query, total: incoming.total, updated, loading: false, error: '',
-            announcement: keepOrder && !old.error ? old.announcement : `${number.format(incoming.total)} accounts. Page ${incoming.page}.` }
-        })
+        setPage(old => applyResponse(old, incoming, { refresh, query, updated }))
       } catch (error) {
         if (signal.aborted) return
         const message = error.status ? error.message : 'Could not reach the accounts API.'
@@ -69,11 +91,17 @@ export function useAccounts(params) {
   }, [query, params.search, attempt])
 
   function acceptOrder() {
-    setPage(old => old.pendingOrder
-      ? { ...old, rows: old.pendingOrder, pendingOrder: null, changed: new Set() }
-      : old)
+    setPage(old =>
+      old.pendingOrder
+        ? { ...old, rows: old.pendingOrder, pendingOrder: null, changed: new Set() }
+        : old,
+    )
   }
 
-  return { ...page, updating: page.loading || (page.query !== query && !page.error),
-    retry: () => setAttempt(n => n + 1), acceptOrder }
+  return {
+    ...page,
+    updating: page.loading || (page.query !== query && !page.error),
+    retry: () => setAttempt(n => n + 1),
+    acceptOrder,
+  }
 }
