@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { useUrlState } from './useUrlState'
 import { useAccounts } from './useAccounts'
@@ -10,6 +10,7 @@ import { number } from './accountFields'
 import { DateRange } from './DateRange'
 import { dateRangeError } from './dateRange'
 import { SummaryCard } from './SummaryCard'
+import { SettingsDialog } from './settings/SettingsDialog'
 import './style.css'
 
 function TableFeedback({ page }) {
@@ -40,7 +41,8 @@ function TableFeedback({ page }) {
 }
 
 function AccountsPage() {
-  const [params, update] = useUrlState()
+  const { params, update, accountId, step, openSettings, closeSettings, leaveGuard } = useUrlState()
+  const opener = useRef(null)
   const page = useAccounts(params)
   const [selected, setSelected] = useState(() => new Set())
 
@@ -72,7 +74,9 @@ function AccountsPage() {
       </header>
       <main className="shell">
         <div className="title-row">
-          <h1>Accounts</h1>
+          <h1 id="accounts-heading" tabIndex={-1}>
+            Accounts
+          </h1>
           <p>
             {page.updated && (
               <>
@@ -94,6 +98,10 @@ function AccountsPage() {
             {page.announcement}
           </div>
           <AccountsTable
+            onEdit={(id, button) => {
+              opener.current = button
+              openSettings(id)
+            }}
             page={page}
             params={params}
             sort={sort}
@@ -111,6 +119,17 @@ function AccountsPage() {
           />
         </section>
       </main>
+      {accountId && (
+        <SettingsDialog
+          key={accountId}
+          accountId={accountId}
+          step={step}
+          goToStep={n => openSettings(accountId, n)}
+          close={closeSettings}
+          opener={opener}
+          leaveGuard={leaveGuard}
+        />
+      )}
     </>
   )
 }

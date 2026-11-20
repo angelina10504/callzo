@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { columns, options } from './accountFields'
 
 function readParams() {
@@ -27,25 +27,66 @@ function readParams() {
   }
 }
 
-export function useUrlState() {
-  const [params, setParams] = useState(readParams)
+function readLocation() {
+  const url = new URL(location.href)
+  const id = Number(url.searchParams.get('settings'))
+  const step = Number(url.searchParams.get('step'))
+  return {
+    params: readParams(),
+    href: url.href,
+    historyState: history.state,
+    accountId: Number.isSafeInteger(id) && id > 0 ? id : null,
+    step: [1, 2, 3, 4].includes(step) ? step : 1,
+  }
+}
 
+export function useUrlState() {
+  const [view, setView] = useState(readLocation)
+  const leaveGuard = useRef(null)
   useEffect(() => {
-    const restore = () => setParams(readParams())
+    function restore() {
+      const next = readLocation()
+      if (view.accountId !== next.accountId && leaveGuard.current) {
+        history.pushState(view.historyState, '', view.href)
+        leaveGuard.current(() => {
+          leaveGuard.current = null
+          history.back()
+        })
+        return
+      }
+      setView(next)
+    }
     window.addEventListener('popstate', restore)
     return () => window.removeEventListener('popstate', restore)
-  }, [])
+  }, [view])
 
-  function update(changes, replace = false) {
+  function write(changes, replace, historyState = history.state) {
     const url = new URL(location.href)
-    for (const [key, value] of Object.entries({ page: 1, ...changes })) {
+    for (const [key, value] of Object.entries(changes)) {
       if (value === '') url.searchParams.delete(key)
       else url.searchParams.set(key, value)
     }
     if (url.href === location.href) return
-    if (replace) history.replaceState(null, '', url)
-    else history.pushState(null, '', url)
-    setParams(readParams())
+    if (replace) history.replaceState(historyState, '', url)
+    else history.pushState(historyState, '', url)
+    setView(readLocation())
   }
-  return [params, update]
+
+  function update(changes, replace = false) {
+    write({ page: 1, ...changes }, replace)
+  }
+
+  function openSettings(id, step = 1) {
+    const alreadyOpen = Boolean(view.accountId)
+    const entry = alreadyOpen ? history.state : { settingsEntry: true }
+    write({ settings: id, step }, alreadyOpen, entry)
+  }
+
+  function closeSettings() {
+    leaveGuard.current = null
+    if (history.state?.settingsEntry) history.back()
+    else write({ settings: '', step: '' }, true, null)
+  }
+
+  return { ...view, update, openSettings, closeSettings, leaveGuard }
 }

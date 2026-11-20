@@ -51,7 +51,7 @@ function SortHeader({ field, label, params, sort, children }) {
   )
 }
 
-function NameCell({ account, checked, toggle, changed }) {
+function NameCell({ account, checked, toggle, changed, onEdit }) {
   const { id, name, email } = account
   return (
     <td>
@@ -65,6 +65,14 @@ function NameCell({ account, checked, toggle, changed }) {
         <div className="min-w-0">
           <strong className={changed.has(`${id}:name`) ? 'flash' : ''}>{name}</strong>
           <small className={changed.has(`${id}:email`) ? 'flash' : ''}>{email}</small>
+          <button
+            className="text-button edit-settings"
+            data-edit-account={id}
+            aria-label={`Edit settings for ${name}, account ${id}`}
+            onClick={e => onEdit(id, e.currentTarget)}
+          >
+            Edit settings
+          </button>
         </div>
       </div>
     </td>
@@ -86,13 +94,14 @@ function ValueCell({ account, field, changed, updated }) {
   )
 }
 
-function AccountRow({ account, checked, toggle, changed, updated }) {
+function AccountRow({ account, checked, toggle, changed, updated, onEdit }) {
   return (
     <tr data-account-id={account.id} data-selected={checked}>
       {columns.map(([field]) => {
         if (field === 'name') {
           return (
             <NameCell
+              onEdit={onEdit}
               key={field}
               account={account}
               checked={checked}
@@ -138,7 +147,7 @@ function EmptyState({ clearFilters }) {
   )
 }
 
-export function AccountsTable({ page, params, sort, selected, toggle, clearFilters }) {
+export function AccountsTable({ page, params, sort, selected, toggle, clearFilters, onEdit }) {
   const { rows, updating, changed, updated, error } = page
   const empty = rows?.length === 0 && !updating && !error && !page.blocked
 
@@ -168,6 +177,7 @@ export function AccountsTable({ page, params, sort, selected, toggle, clearFilte
             <AccountRow
               key={account.id}
               account={account}
+              onEdit={onEdit}
               checked={selected.has(account.id)}
               toggle={toggle}
               changed={changed}

@@ -44,6 +44,14 @@ Choose minutes, SMS or USD cost to plot the daily series. The caption gives the 
 
 The chart loads independently. An initial request, a date change or a manual retry gets one automatic retry after one second. A second failure shows **Retry** in the chart card. After a successful load, the visible tab polls every 15 seconds. A failed poll keeps the last successful chart and shows its update time.
 
+## Account settings
+
+Use **Edit settings** beside a name. The URL keeps the account ID and step, so refreshing reopens the dialog and reloads the server draft. On a new draft, contact details and plan come from the account. Back and the step buttons let you revisit earlier steps. Escape or Close returns focus to the opener. Closing with local edits or a failed save offers **Keep editing** and **Discard**.
+
+The reducer keeps confirmed data, editable values, field errors and save status separately for each step. A valid changed step saves after 800 ms of inactivity or immediately on leaving. One PUT per step runs at a time. Typing during a request keeps the newer input and queues a follow-up save. Retry resends the current draft. Refresh restores confirmed values; edits awaiting confirmation live in this tab.
+
+After step 4 is saved, the mock rejects further changes to step 2. If a fresh account opens directly on step 4, its webhook draft waits locally for the first confirmed Billing save. This keeps the first billing value recoverable even after an incomplete submit. The stepper marks Billing as needing attention even when another step is open. Billing shows the rejected draft beside the previously saved country. Reverting to the confirmed values sends no PUT. **Submit** uses the versions already on the server, so a rejected edit cannot block an otherwise complete submission. An incomplete submission opens the first missing step. [375 px settings dialog](screenshots/settings-375.png)
+
 ## API notes
 
 These observations came from curl requests to the supplied image on port 8001.
