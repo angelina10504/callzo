@@ -1,6 +1,6 @@
 # Task 2 — Usage Admin Console
 
-The scaffold has one page. It fetches `/api/health` once and displays the mock API's status and account count. It uses JavaScript so the health check and build setup are easy to follow. React, React DOM, Tailwind CSS v4 and Recharts are the four direct runtime dependencies. Recharts is installed for the later summary chart.
+The accounts table uses React and Tailwind CSS v4. The mock API handles search, sorting, filters and pagination. Amounts use USD for display and remain integer cents in the data.
 
 ## Run with Docker
 
@@ -12,7 +12,7 @@ docker compose up --build -d
 curl http://localhost:3000/api/health
 ```
 
-Open <http://localhost:3000>. The page should read **Status: ok · Accounts: 10,500**. The curl response is `{"status":"ok","accounts":10500}`. Run `docker compose down` from this directory to stop Task 2.
+Open <http://localhost:3000>. The initial view shows 25 of the mock API's 10,500 accounts, ordered by ID. The curl response is `{"status":"ok","accounts":10500}`. Run `docker compose down` from this directory to stop Task 2.
 
 Node builds the static files and nginx serves them. At container startup nginx substitutes `API_URL` into its configuration. It strips the `/api/` prefix and forwards the rest of the path and query string to the mock. The default upstream is `http://mock-api:8001` on the Compose network. Set `API_URL` to an origin without a trailing slash to override it. Compose builds the frontend locally for this stage. The submission requires a published frontend image.
 
@@ -27,6 +27,14 @@ API_URL=http://localhost:8001 npm run dev
 ```
 
 Open the URL Vite prints. Both servers expose the same `/api/` paths to the browser. Vite runs on the host here, so its upstream uses the mock's published port.
+
+## Accounts table
+
+- **View state.** The URL stores search, status, country, plan, sort column, direction, page and page size. Typing replaces the current history entry. Other view changes add an entry. Back, Forward and copied URLs restore the view.
+- **Fetching.** Search waits 300 ms after the last edit. A view change cancels the previous request. While the next page loads, the table keeps its height and dims the previous rows. Retry uses the current filters. Nginx allows three seconds to connect to the mock so a stopped service produces an inline error promptly.
+- **Selection.** React holds a set of account IDs for this tab. The header checkbox toggles the displayed page. Selection survives navigation and polling, and resets on a full browser reload.
+- **Refresh.** Every 15 seconds the visible tab checks for new values when no request is in flight. Changed cells flash briefly. If the server sends a different order or page membership, the table holds its rows in place. **Reload** applies the latest server page.
+- **Small screens.** Filters stack, and the table scrolls independently with the name column pinned. [375 px screenshot](screenshots/accounts-375.png)
 
 ## API notes
 
