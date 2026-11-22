@@ -42,7 +42,7 @@ fixed error message above. After restarting Postgres, `/ready` returned HTTP
 
 Event storage smoke check on 18 November 2026 used an isolated Postgres
 instance while Docker Desktop was unresponsive. FastAPI created the table
-and indexes at startup. The sample from `Task1_spec.md` came back with all
+and indexes at startup. The sample webhook event came back with all
 256 body bytes intact and status `pending`. Inserting the same ID with
 `ON CONFLICT (event_id) DO NOTHING` left one row. Deleting that sample left
 zero matching rows. A second startup succeeded against the same database.
@@ -278,7 +278,7 @@ Reference: [Psycopg connection and context manager documentation](https://www.ps
 ## Design decisions
 
 These are implementation decisions for the assessment, not clarifications
-confirmed by Callzo. The supplied webhook contract is in `../Task1_spec.md`.
+confirmed by Callzo. The validation rules are implemented in `app/events.py`.
 
 | Requirement or ambiguity | Decision |
 | --- | --- |
